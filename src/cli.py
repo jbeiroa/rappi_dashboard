@@ -1,21 +1,33 @@
 import typer
 import asyncio
-from src.scraper.rappi import scrape_rappi_restaurant, save_to_csv
+from typing import List, Optional
+from src.scraper.rappi import scrape_rappi_by_address, save_to_csv
 from src.dashboard.app import app as dashboard_app
 
 app = typer.Typer(help="Rappi Competitive Intelligence CLI")
 
 @app.command()
 def scrape_rappi(
-    url: str = typer.Argument(..., help="The URL of the Rappi restaurant to scrape"),
+    address: str = typer.Option("Polanco, Miguel Hidalgo, CDMX", "--address", "-a", help="The address to set on Rappi"),
+    restaurant: str = typer.Option("McDonald's", "--restaurant", "-r", help="The restaurant to search for"),
+    products: Optional[List[str]] = typer.Option(
+        ["Big Mac", "Combo Cuarto de Libra", "Coca-Cola 500ml"], 
+        "--product", "-p", 
+        help="Products to scrape prices for"
+    ),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Whether to run the browser in headless mode"),
 ):
     """
-    Scrapes a Rappi restaurant and saves the results to a CSV.
+    Scrapes Rappi for a specific restaurant and products at a given address.
     """
-    typer.echo(f"Starting Rappi scraper for: {url}")
-    data = asyncio.run(scrape_rappi_restaurant(url, headless=headless))
+    typer.echo(f"Starting Rappi scraper...")
+    typer.echo(f"Address: {address}")
+    typer.echo(f"Restaurant: {restaurant}")
+    typer.echo(f"Products: {', '.join(products)}")
+    
+    data = asyncio.run(scrape_rappi_by_address(address, restaurant, products, headless=headless))
     save_to_csv(data)
+    
     typer.echo("Scraping completed successfully.")
 
 @app.command()
