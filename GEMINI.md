@@ -9,7 +9,7 @@ This project follows strict engineering and operational standards. All developme
 
 ## 2. Communication & Language
 - **Development:** Code, variable names, comments, and internal documentation (like this file) must be in **English**.
-- **Application UI:** The final user-facing application (Plotly Dash) must be in **Spanish**.
+- **Public Facing:** The final user-facing application (Plotly Dash) and the primary documentation (`README.md`) must be in **Spanish**.
 
 ## 3. Architecture
 - **Layout:** Follow the `src/` layout.
