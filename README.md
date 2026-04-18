@@ -1,21 +1,21 @@
 # Dashboard de Inteligencia Competitiva para Rappi
 
-Este proyecto es una evaluación técnica para Rappi, enfocada en la construcción de un sistema de inteligencia competitiva resiliente y automatizado para el mercado de delivery en México. Actualmente cuenta con un scraper especializado para Rappi utilizando Playwright y un dashboard en Plotly Dash para visualizar métricas clave de rendimiento.
+Este proyecto es una evaluación técnica para Rappi, enfocada en la construcción de un sistema de inteligencia competitiva resiliente y automatizado para el mercado de delivery en México. Cuenta con scrapers especializados para **Rappi**, **Uber Eats** y **Chedraui**, utilizando Playwright, y un dashboard en Plotly Dash para visualizar métricas clave de rendimiento.
 
 ## 🚀 Descripción General
 
-El sistema está diseñado para navegar las complejidades del ecosistema de delivery en México (Rappi, Uber Eats, DiDi Food). Prioriza la resiliencia técnica, la precisión de la geolocalización y la generación de insights estratégicos accionables.
+El sistema está diseñado para navegar las complejidades del ecosistema de delivery en México. Prioriza la resiliencia técnica, la precisión de la geolocalización y la generación de insights estratégicos accionables, permitiendo comparativas tanto en el sector de restaurantes (ej. McDonald's) como en retail (ej. Supermercados).
 
 ### Capacidades Actuales
-- **Scraper con Playwright:** Extracción de alta fidelidad desde la interfaz web de Rappi, manejando contenido dinámico y SPAs.
-- **CLI Personalizada:** Interfaz de línea de comandos unificada construida con `typer` para la gestión de scrapers y el dashboard.
-- **Pipeline de Datos Automatizado:** Extracción de datos crudos a CSV con limpieza y normalización automatizada usando `pandas`.
-- **Dashboard Interactivo:** Aplicación en Plotly Dash (en español) que visualiza Tarifas de Envío y ETAs a través de diferentes benchmarks de restaurantes.
-- **Stack de Python Moderno:** Gestionado íntegramente con `uv` para una gestión de dependencias extremadamente rápida y reproducible.
+- **Scraping Multi-Vendor (Playwright + Stealth):** Extracción de alta fidelidad desde las interfaces web de Rappi, Uber Eats y Chedraui, manejando contenido dinámico y redirecciones complejas.
+- **Geolocalización Precisa:** Resolución automática de 50 direcciones estratégicas a coordenadas exactas (lat/lng) y Códigos Postales, asegurando comparativas precisas por zona.
+- **Pipeline de Datos Automatizado:** Extracción de datos a JSON versionados por fecha y hora, con limpieza y categorización automatizada usando `pandas`.
+- **Automatización CI/CD:** Flujo de GitHub Actions configurado para ejecutar los benchmarks automáticamente dos veces por semana y subir los resultados a Google Drive de forma segura.
+- **Dashboard Interactivo:** Aplicación en Plotly Dash con un diseño de doble pestaña (Nacional y Local) que visualiza posicionamiento de precios, ventajas de tiempos de entrega (ETA), estructura de fees y estrategias promocionales.
 
 ## 🛠 Instalación
 
-Este proyecto utiliza `uv`. Asegúrate de tenerlo instalado, luego ejecuta:
+Este proyecto utiliza `uv` para la gestión de dependencias.
 
 ```bash
 # Clonar el repositorio
@@ -33,48 +33,47 @@ uv run playwright install chromium
 
 Todas las operaciones se gestionan a través de la herramienta `src/cli.py`.
 
-### 1. Scrapear un Restaurante
-Para probar el scraper en una URL específica de un restaurante en Rappi:
+### 1. Scrapear una Dirección Específica
+Para probar un scraper en una dirección particular:
 
 ```bash
-# Ejecutar en modo headless (predeterminado)
-PYTHONPATH=. uv run python -m src.cli scrape-rappi "https://www.rappi.com.mx/restaurantes/..."
-
-# Ejecutar con el navegador visible (para inspección)
-PYTHONPATH=. uv run python -m src.cli scrape-rappi "https://www.rappi.com.mx/restaurantes/..." --no-headless
+PYTHONPATH=. uv run python -m src.cli scrape --vendor uber --address "Polanco, Miguel Hidalgo" --restaurant "McDonald's"
 ```
 
-### 2. Lanzar el Dashboard
-Para visualizar los datos de inteligencia competitiva:
+### 2. Ejecutar Benchmarks Completos
+Los benchmarks procesan el listado de direcciones resueltas para recopilar datos a escala nacional.
+
+```bash
+# Benchmark de Restaurantes (Rappi y Uber Eats)
+PYTHONPATH=. uv run python -m src.cli benchmark --vendor all --timestamp --no-headless
+
+# Benchmark de Retail (Rappi, Uber Eats y Chedraui)
+PYTHONPATH=. uv run python -m src.cli benchmark-retail --vendor all --timestamp
+```
+
+### 3. Lanzar el Dashboard
+Para visualizar los datos (asegúrate de tener archivos JSON en `data/raw/`):
 
 ```bash
 PYTHONPATH=. uv run python -m src.cli dashboard
 ```
-El dashboard estará disponible en `http://127.0.0.1:8050/`.
+El dashboard estará disponible en `http://127.0.0.1:8051/`.
 
-### 3. Ejecutar Pruebas
+### 4. Ejecutar Pruebas
 ```bash
-PYTHONPATH=. uv run pytest
+PYTHONPATH=. uv run pytest tests/
 ```
 
 ## 🗺️ Estructura del Proyecto
 
 - `src/`: Código fuente principal.
-  - `scraper/`: Lógica de automatización y extracción con Playwright.
-  - `dashboard/`: Aplicación Dash y procesamiento de datos.
-- `notebooks/`: Análisis exploratorio de datos (EDA) e investigación.
-- `scripts/`: Scripts de utilidad ad-hoc.
-- `tests/`: Suite de pruebas con Pytest.
-- `data/`: Almacenamiento local para datasets `raw` y `processed` (ignorado por git).
-- `docs/`: Instrucciones de la asignación y documentación de investigación.
-
-## 📝 TODO / Próximos Pasos
-
-- [ ] **Soporte Multi-Vendor:** Implementar scrapers para Uber Eats y DiDi Food.
-- [ ] **Escalamiento Geográfico:** Automatizar el scraping en las 50 ubicaciones estratégicas identificadas en `docs/scraper_research.md`.
-- [ ] **Evasión Avanzada:** Integrar rotación de proxies residenciales y plugins de sigilo (stealth).
-- [ ] **Product Matching:** Implementar algoritmos de coincidencia difusa (fuzzy matching) para comparar productos idénticos en diferentes plataformas.
-- [ ] **Despliegue:** Contenerizar la aplicación para despliegue en la nube (AWS/GCP).
+  - `scraper/`: Lógica de automatización para Rappi, Uber Eats y Chedraui.
+  - `dashboard/`: Aplicación Dash y lógica de procesamiento de métricas.
+- `scripts/`: Scripts de soporte para resolución de direcciones y carga a la nube.
+- `tests/`: Suite de pruebas automatizadas.
+- `data/`: Almacenamiento local para datasets (ignorado por git para evitar archivos pesados).
+- `docs/`: Reportes de investigación y documentación de metodologías.
+- `.github/workflows/`: Automatizaciones de ejecución programada.
 
 ---
-*Nota: El desarrollo se realiza en inglés, pero la interfaz del Dashboard y la documentación principal (README) se presentan en español para alinearse con los requerimientos regionales.*
+*Nota: El desarrollo técnico se realiza en inglés para mantener estándares de ingeniería, pero la interfaz del Dashboard y la documentación principal se presentan en español para alinearse con los requerimientos de negocio regionales.*
