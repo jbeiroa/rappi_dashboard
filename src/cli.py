@@ -36,7 +36,13 @@ def benchmark(
 ):
     """Benchmark for RESTAURANTS (McDonald's)."""
     if renew:
-        clear_data()
+        # ONLY clear the vendors being benchmarked
+        vendors_to_clear = ["rappi", "uber"] if vendor == "all" else [vendor]
+        for v in vendors_to_clear:
+            f = f"data/raw/{v}_products.json"
+            if os.path.exists(f):
+                os.remove(f)
+                typer.echo(f"Cleared {f}")
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M") if timestamp else None
     
@@ -87,8 +93,15 @@ def benchmark_retail(
 ):
     """Benchmark for RETAIL products (Chedraui) across all three vendors."""
     if renew:
-        for f in ["data/raw/rappi_products.json", "data/raw/uber_products.json", "data/raw/chedraui_products.json"]:
-            if os.path.exists(f): os.remove(f)
+        # ONLY clear the vendors being benchmarked in retail context
+        vendors_to_clear = ["rappi", "uber", "chedraui"] if vendor == "all" else [vendor]
+        for v in vendors_to_clear:
+            # We use a separate naming convention or context if needed, but for now
+            # let's just protect the main files if we aren't explicitly renewing them.
+            f = f"data/raw/{v}_products.json"
+            if os.path.exists(f):
+                os.remove(f)
+                typer.echo(f"Cleared {f}")
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M") if timestamp else None
 
