@@ -11,12 +11,12 @@ from rapidfuzz import process, fuzz
 
 async def scrape_chedraui_by_address(address: str, target_products: List[str], headless: bool = True, lat: Optional[float] = None, lng: Optional[float] = None, city: str = "Unknown", municipality: str = "Unknown"):
     """
-    Sets the location on Chedraui and extracts product prices.
+    Sets the location on Chedraui and extracts product prices using a robust text-based method.
     """
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless, args=['--disable-blink-features=AutomationControlled'])
         context = await browser.new_context(
-            viewport={'width': 1280, 'height': 900},
+            viewport={'width': 1280, 'height': 1000},
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
@@ -26,27 +26,33 @@ async def scrape_chedraui_by_address(address: str, target_products: List[str], h
         await page.goto("https://www.chedraui.com.mx/", wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(5000)
 
+        # 0. Handle Cookie Popup
+        try:
+            cookie_btn = page.get_by_role("button", name="Aceptar").first
+            if await cookie_btn.is_visible():
+                await cookie_btn.click()
+                print("Accepted cookies.")
+        except: pass
+
         # 1. Set Address/Location
         try:
-            # Handle initial delivery type modal if it appears
-            # Look for "Enviar a domicilio" or similar
-            delivery_btn = page.locator("button:has-text('Enviar a domicilio'), div:has-text('Enviar a domicilio')").first
-            if await delivery_btn.is_visible():
-                await delivery_btn.click()
-                await page.wait_for_timeout(2000)
-
-            # ZIP Code (CP) extraction
+            # ZIP Code (CP) extraction from address
             cp_match = re.search(r'\b\d{5}\b', address)
             cp = cp_match.group(0) if cp_match else "06000"
             
-            cp_input = page.locator("input[placeholder*='código postal'], input[name*='zipCode']").first
+            # Click location trigger
+            loc_trigger = page.locator("div[class*='header-location'], span[class*='location-text'], div[class*='vtex-address-manager']").first
+            if await loc_trigger.is_visible():
+                await loc_trigger.click()
+                await page.wait_for_timeout(2000)
+
+            cp_input = page.locator("input[placeholder*='código postal'], input[name*='zipCode'], input[id*='zipCode']").first
             if await cp_input.is_visible():
                 await cp_input.fill(cp)
                 await page.keyboard.press("Enter")
                 await page.wait_for_timeout(4000)
             
-            # Confirm button if any
-            confirm_btn = page.locator("button:has-text('Confirmar'), button:has-text('Guardar')").first
+            confirm_btn = page.locator("button:has-text('Confirmar'), button:has-text('Guardar'), button[class*='confirm']").first
             if await confirm_btn.is_visible():
                 await confirm_btn.click()
                 await page.wait_for_timeout(3000)
@@ -62,53 +68,75 @@ async def scrape_chedraui_by_address(address: str, target_products: List[str], h
         for target in target_products:
             try:
                 print(f"Searching for {target}...")
-                # Search using the site's internal search parameter
-                search_url = f"https://www.chedraui.com.mx/search?_query={target.replace(' ', '%20')}"
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-                await page.wait_for_timeout(6000)
+                # Use UI search instead of direct URL which might be blocked or flaky
+                search_input = page.get_by_placeholder("¿Qué estás buscando?").first
+                if not await search_input.is_visible():
+                    search_input = page.locator("input[id*='search'], input[class*='search']").first
                 
-                # Scroll to ensure load
-                await page.mouse.wheel(0, 1000)
+                if await search_input.is_visible():
+                    await search_input.click()
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                    await search_input.fill(target)
+                    await page.keyboard.press("Enter")
+                    await page.wait_for_timeout(8000)
+                else:
+                    # Fallback to direct search URL
+                    search_url = f"https://www.chedraui.com.mx/search?_query={target.replace(' ', '%20')}"
+                    await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                    await page.wait_for_timeout(8000)
+                
+                # Scroll to ensure rendering
+                await page.mouse.wheel(0, 1500)
                 await page.wait_for_timeout(2000)
 
-                # Extract products from search results
-                # Common VTEX selectors
-                cards = await page.locator("div[class*='product-summary'], div[class*='vtex-product-summary'], div[class*='product-item']").all()
+                # Extract products using a more general locator (search for divs containing $)
+                # Chedraui/VTEX structure is often deeply nested
+                product_elements = await page.locator("div:has(h3, span):has-text('$')").all()
                 scraped_products = []
-                for card in cards:
+                
+                # Deduplicate and extract
+                seen_names = set()
+                for el in product_elements:
                     try:
-                        text = await card.inner_text()
-                        if "$" not in text: continue
+                        text = await el.inner_text()
+                        if "$" not in text or len(text) < 10: continue
                         
-                        # Name usually in a span or h3
-                        name_el = card.locator("span[class*='brandName'], h3[class*='productName'], span[class*='productBrand']").first
-                        name = await name_el.inner_text() if await name_el.count() > 0 else text.split('\n')[0]
+                        lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 3]
+                        if not lines: continue
                         
-                        # Price extraction
+                        name = lines[0]
+                        if name in seen_names: continue
+                        
                         prices = re.findall(r'\$\s*(\d+(?:,\d+)?(?:\.\d+)?)', text.replace(',', ''))
                         prices = sorted(list(set([float(p) for p in prices])))
                         
-                        if prices and len(name) > 3:
+                        if prices:
                             scraped_products.append({
                                 "name": name,
                                 "prices": prices,
-                                "html_snippet": str(await card.inner_html())[:500]
+                                "html_snippet": (await el.inner_html())[:500] if not headless else None
                             })
+                            seen_names.add(name)
                     except: continue
                 
-                # Match
-                scraped_names = [p["name"] for p in scraped_products]
-                match_res = process.extractOne(target, scraped_names, scorer=fuzz.WRatio)
+                # Filter to most relevant candidates (those that mention target words)
+                target_words = set(target.lower().split())
+                candidates = [p for p in scraped_products if any(w in p["name"].lower() for w in target_words)]
                 
-                if match_res and match_res[1] > 70:
-                    match = next(p for p in scraped_products if p["name"] == match_res[0])
+                # Matching
+                scraped_names = [p["name"] for p in candidates]
+                match_res = process.extractOne(target, scraped_names, scorer=fuzz.WRatio) if scraped_names else None
+                
+                if match_res and match_res[1] > 65:
+                    match = next(p for p in candidates if p["name"] == match_res[0])
                     price = min(match["prices"])
                     results.append({
                         "timestamp": timestamp, "app_name": "Chedraui", "store_name": "Chedraui Super",
                         "full_address": address, "lat": lat, "lng": lng, "city": city, "municipality": municipality,
                         "target_product": target, "scraped_product_name": match["name"],
                         "original_price": price, "final_price": price, "discount_amount": 0.0,
-                        "delivery_fee": 0.0, "eta": 0, "html_snippet": match["html_snippet"]
+                        "delivery_fee": 0.0, "eta": 0, "html_snippet": match.get("html_snippet")
                     })
                 else:
                     results.append({
