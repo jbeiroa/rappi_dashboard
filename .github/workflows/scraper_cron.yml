@@ -1,0 +1,56 @@
+name: Scheduled Scraper Benchmark
+
+on:
+  schedule:
+    # Mondays and Fridays at 09:00 and 15:00 Mexico City time (CST, UTC-6)
+    # 09:00 CST -> 15:00 UTC
+    # 15:00 CST -> 21:00 UTC
+    - cron: '0 15,21 * * 1,5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape_and_upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Playwright Browsers
+        run: uv run playwright install chromium --with-deps
+
+      - name: Run Restaurant Benchmark
+        run: |
+          uv run python -m src.cli benchmark --vendor all --timestamp --headless --no-renew
+        env:
+          PYTHONPATH: .
+
+      - name: Run Retail Benchmark
+        run: |
+          uv run python -m src.cli benchmark-retail --vendor all --timestamp --headless --no-renew
+        env:
+          PYTHONPATH: .
+
+      - name: Upload results to Google Drive
+        run: |
+          # Use a glob to find all timestamped files created in this run
+          FILES=$(ls data/raw/*_20*.json)
+          if [ -n "$FILES" ]; then
+            uv run python scripts/upload_to_gdrive.py --folder ${{ secrets.GDRIVE_FOLDER_ID }} $FILES
+          else
+            echo "No timestamped files found to upload."
+          fi
+        env:
+          GDRIVE_CREDENTIALS_JSON: ${{ secrets.GDRIVE_CREDENTIALS_JSON }}
+          PYTHONPATH: .
