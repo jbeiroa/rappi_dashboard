@@ -179,7 +179,9 @@ async def scrape_uber_eats_by_address(address: str, restaurant_name: str, target
         await browser.close()
         return results
 
-def save_to_json(data: List[dict], filename: str = "data/raw/uber_products.json"):
+def save_to_json(data: List[dict], filename: Optional[str] = None):
+    if filename is None:
+        filename = "data/raw/uber_products.json"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     existing_data = []
     if os.path.isfile(filename):

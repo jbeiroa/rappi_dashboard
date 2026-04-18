@@ -181,3 +181,6 @@ data/processed/*.csv
 data/processed/*.json
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+
+# Word lock file with the assignments
+docs/~$nsigna.docx

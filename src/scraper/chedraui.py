@@ -124,7 +124,9 @@ async def scrape_chedraui_by_address(address: str, target_products: List[str], h
         await browser.close()
         return results
 
-def save_to_json(data: List[dict], filename: str = "data/raw/chedraui_products.json"):
+def save_to_json(data: List[dict], filename: Optional[str] = None):
+    if filename is None:
+        filename = "data/raw/chedraui_products.json"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     existing_data = []
     if os.path.isfile(filename):

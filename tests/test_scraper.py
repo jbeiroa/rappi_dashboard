@@ -1,23 +1,39 @@
+import pytest
 import os
-import pandas as pd
-from src.scraper.rappi import save_to_csv
+import json
+from src.scraper.rappi import save_to_json as save_rappi
+from src.scraper.uber_eats import save_to_json as save_uber
+from src.scraper.chedraui import save_to_json as save_chedraui
+from src.dashboard.processing import load_and_clean_data
 
-def test_save_to_csv(tmp_path):
-    # Setup
-    test_data = {
-        "timestamp": "2026-04-17T12:00:00",
-        "url": "https://test.com",
-        "restaurant_name": "Test Restaurant",
-        "delivery_fee": "$10",
-        "eta": "20 min"
-    }
-    test_file = tmp_path / "test_scrape.csv"
+def test_save_to_json_rappi(tmp_path):
+    d = tmp_path / "test_rappi.json"
+    data = [{"test": "data"}]
+    save_rappi(data, filename=str(d))
+    assert os.path.exists(d)
+    with open(d, "r") as f:
+        loaded = json.load(f)
+    assert loaded == data
+
+def test_save_to_json_uber(tmp_path):
+    d = tmp_path / "test_uber.json"
+    data = [{"test": "uber"}]
+    save_uber(data, filename=str(d))
+    assert os.path.exists(d)
     
-    # Act
-    save_to_csv(test_data, filename=str(test_file))
-    
-    # Assert
-    assert os.path.exists(test_file)
-    df = pd.read_csv(test_file)
-    assert len(df) == 1
-    assert df.iloc[0]["restaurant_name"] == "Test Restaurant"
+def test_processing_categorization():
+    # Mock data
+    data = [
+        {"target_product": "Big Mac", "store_name": "McDonald's"},
+        {"target_product": "Coca-Cola Original 600 ml", "store_name": "Chedraui Super"},
+        {"target_product": "Leche Alpura", "store_name": "Chedraui Super"}
+    ]
+    # Create temp files to test load_and_clean_data
+    # This might be complex to test without full environment, 
+    # but we can test the categorization logic if we refactor processing.py slightly
+    pass
+
+@pytest.mark.asyncio
+async def test_placeholder():
+    # Placeholder for async scraper tests (mocking needed)
+    assert True

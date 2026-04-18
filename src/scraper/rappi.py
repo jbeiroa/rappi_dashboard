@@ -199,7 +199,9 @@ async def get_available_products(address: str, restaurant_name: str, count: int 
         await browser.close()
         return []
 
-def save_to_json(data: List[dict], filename: str = "data/raw/rappi_products.json"):
+def save_to_json(data: List[dict], filename: Optional[str] = None):
+    if filename is None:
+        filename = "data/raw/rappi_products.json"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     existing_data = []
     if os.path.isfile(filename):

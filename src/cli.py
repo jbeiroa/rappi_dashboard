@@ -32,11 +32,14 @@ def benchmark(
     headless: bool = typer.Option(True, "--headless/--no-headless"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l"),
     renew: bool = typer.Option(False, "--renew/--no-renew"),
+    timestamp: bool = typer.Option(False, "--timestamp/--no-timestamp", help="Append timestamp to filename"),
 ):
     """Benchmark for RESTAURANTS (McDonald's)."""
     if renew:
         clear_data()
 
+    run_id = datetime.now().strftime("%Y%m%d_%H%M") if timestamp else None
+    
     address_file = "data/raw/resolved_addresses.csv"
     if not os.path.exists(address_file):
         address_file = "data/raw/addresses.csv"
@@ -55,6 +58,8 @@ def benchmark(
     
     for v in vendors:
         typer.echo(f"--- {v.upper()} Restaurant Benchmark ---")
+        filename = f"data/raw/{v}_products_{run_id}.json" if run_id else None
+        
         for i, row in df.iterrows():
             addr, lat, lng = row["original_address"], row.get("lat"), row.get("lng")
             parts = [p.strip() for p in addr.split(',')]
@@ -64,10 +69,10 @@ def benchmark(
             try:
                 if v == "rappi":
                     data = asyncio.run(scrape_rappi_by_address(addr, restaurant, products, headless=headless, lat=lat, lng=lng, city=city, municipality=municipality))
-                    save_rappi(data)
+                    save_rappi(data, filename=filename)
                 elif v == "uber":
                     data = asyncio.run(scrape_uber_eats_by_address(addr, restaurant, products, headless=headless, lat=lat, lng=lng, city=city, municipality=municipality))
-                    save_uber(data)
+                    save_uber(data, filename=filename)
                 time.sleep(random.uniform(5, 10))
             except Exception as e:
                 typer.echo(f"  Error: {e}")
@@ -78,11 +83,14 @@ def benchmark_retail(
     headless: bool = typer.Option(True, "--headless/--no-headless"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l"),
     renew: bool = typer.Option(False, "--renew/--no-renew"),
+    timestamp: bool = typer.Option(False, "--timestamp/--no-timestamp", help="Append timestamp to filename"),
 ):
     """Benchmark for RETAIL products (Chedraui) across all three vendors."""
     if renew:
         for f in ["data/raw/rappi_products.json", "data/raw/uber_products.json", "data/raw/chedraui_products.json"]:
             if os.path.exists(f): os.remove(f)
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M") if timestamp else None
 
     address_file = "data/raw/resolved_addresses.csv"
     if not os.path.exists(address_file):
@@ -97,6 +105,8 @@ def benchmark_retail(
     
     for v in vendors:
         typer.echo(f"--- {v.upper()} Retail Benchmark (Chedraui) ---")
+        filename = f"data/raw/{v}_products_{run_id}.json" if run_id else None
+
         for i, row in df.iterrows():
             addr, lat, lng = row["original_address"], row.get("lat"), row.get("lng")
             parts = [p.strip() for p in addr.split(',')]
@@ -105,13 +115,13 @@ def benchmark_retail(
             try:
                 if v == "rappi":
                     data = asyncio.run(scrape_rappi_by_address(addr, "Chedraui", products, headless=headless, lat=lat, lng=lng, city=city, municipality=mun))
-                    save_rappi(data)
+                    save_rappi(data, filename=filename)
                 elif v == "uber":
                     data = asyncio.run(scrape_uber_eats_by_address(addr, "Chedraui", products, headless=headless, lat=lat, lng=lng, city=city, municipality=mun))
-                    save_uber(data)
+                    save_uber(data, filename=filename)
                 elif v == "chedraui":
                     data = asyncio.run(scrape_chedraui_by_address(addr, products, headless=headless, lat=lat, lng=lng, city=city, municipality=mun))
-                    save_chedraui(data)
+                    save_chedraui(data, filename=filename)
                 time.sleep(random.uniform(5, 10))
             except Exception as e:
                 typer.echo(f"  Error: {e}")
@@ -119,8 +129,8 @@ def benchmark_retail(
 @app.command()
 def dashboard():
     """Launches the Plotly Dash dashboard."""
-    typer.echo("Launching dashboard...")
-    dashboard_app.run_server(debug=True)
+    typer.echo("Launching dashboard on port 8051...")
+    dashboard_app.run(debug=True, port=8051)
 
 if __name__ == "__main__":
     app()
