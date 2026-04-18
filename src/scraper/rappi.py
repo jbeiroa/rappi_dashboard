@@ -6,21 +6,14 @@ from datetime import datetime
 import os
 import re
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 from rapidfuzz import process, fuzz
 
-async def scrape_rappi_by_address(address: str, restaurant_name: str, target_products: List[str], headless: bool = True):
+async def scrape_rappi_by_address(address: str, restaurant_name: str, target_products: List[str], headless: bool = True, lat: Optional[float] = None, lng: Optional[float] = None, city: str = "Unknown", municipality: str = "Unknown"):
     """
     Sets the address on Rappi, searches for a restaurant, and extracts precise product prices.
     Returns a list of structured dictionaries for each target product found.
     """
-    # Parse address components (Assuming format: "Zone, Municipality, State")
-    address_parts = [p.strip() for p in address.split(',')]
-    zone = address_parts[0] if len(address_parts) > 0 else "N/A"
-    municipality = address_parts[1] if len(address_parts) > 1 else "N/A"
-    state = address_parts[2] if len(address_parts) > 2 else "N/A"
-    country = "México"
-
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless, args=['--disable-blink-features=AutomationControlled'])
         context = await browser.new_context(
@@ -37,248 +30,182 @@ async def scrape_rappi_by_address(address: str, restaurant_name: str, target_pro
         try:
             await page.wait_for_timeout(3000)
             try:
+                # Handle initial popups
                 await page.get_by_text("Ok, entendido", exact=False).first.click(timeout=3000)
-            except:
-                pass
+            except: pass
 
             address_input = page.get_by_placeholder("¿Dónde quieres recibir tu compra?").first
             if not await address_input.is_visible():
-                await page.get_by_text("Ciudad de México").first.click()
+                city_btn = page.get_by_text("Ciudad de México", exact=False).first
+                if await city_btn.is_visible(): await city_btn.click()
                 address_input = page.get_by_placeholder("¿Dónde quieres recibir tu compra?").first
 
             await address_input.click()
-            # Special case for the Polanco address to ensure match
-            target_addr = address if "Calle Polanco" in address else "Calle Polanco, Polanco V Sección 11560 Miguel Hidalgo, Ciudad de México"
-            if address != "Calle Polanco, Polanco V Sección 11560 Miguel Hidalgo":
-                 target_addr = address
+            await address_input.fill(address)
+            await page.wait_for_timeout(4000)
             
-            await address_input.fill(target_addr)
-            await page.wait_for_timeout(3000)
+            # Select first autocomplete specifically
+            first_option = page.locator("div[class*='AddressList'], ul li, div[data-qa='address-item']").first
+            if await first_option.count() > 0:
+                await first_option.click()
+            else:
+                await page.keyboard.press("ArrowDown")
+                await page.wait_for_timeout(500)
+                await page.keyboard.press("Enter")
             
-            await page.keyboard.press("ArrowDown")
-            await page.wait_for_timeout(500)
-            await page.keyboard.press("Enter")
-            
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            print(f"Address set to: {target_addr}")
+            await page.wait_for_load_state("domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(5000)
+            print(f"Address set to: {address}")
         except Exception as e:
             print(f"Error setting address: {e}")
 
         # 2. Navigate to Restaurant Menu
+        store_entered = False
         try:
-            print(f"Searching for {restaurant_name}...")
-            search_query = "Mc Donald's" if "mcdonald" in restaurant_name.lower() else restaurant_name
-            search_url = f"https://www.rappi.com.mx/busqueda?query={search_query.replace(' ', '%20')}"
-            await page.goto(search_url, wait_until="networkidle", timeout=60000)
+            # Search for "McDonalds" (more common in URLs/tags)
+            search_query = "McDonalds"
+            search_url = f"https://www.rappi.com.mx/busqueda?query={search_query}"
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(10000)
             
-            # Helper to find a specific store link on the current page
-            async def get_specific_store_link():
+            # Helper to find store link
+            async def find_store():
+                # Check for "McDonald" in any link
                 links = await page.locator("a[href*='/restaurantes/']").all()
                 for link in links:
+                    inner_text = await link.inner_text()
                     href = await link.get_attribute("href")
-                    # Specific stores have numeric IDs > 5 digits and NO /delivery/ or /brand/ or /category/
-                    if re.search(r"/restaurantes/\d{5,}-", href) and not any(x in href for x in ["/delivery/", "/brand/", "/category/", "/tag/"]):
+                    if "mcdonald" in inner_text.lower() or "mcdonald" in href.lower():
                         return link
                 return None
 
-            target_link = await get_specific_store_link()
-            
-            if target_link:
-                print(f"Clicking specific store link: {await target_link.get_attribute('href')}")
-                await target_link.click()
+            target = await find_store()
+            if target:
+                await target.click()
+                store_entered = True
             else:
-                if "/delivery/" in page.url or "/brand/" in page.url:
-                    print("Landed on brand hub, looking for specific store link on this page...")
-                    await page.wait_for_timeout(5000)
-                    target_link = await get_specific_store_link()
-                    if target_link:
-                         print(f"Clicking store from hub: {await target_link.get_attribute('href')}")
-                         await target_link.click()
-                    else:
-                         await page.get_by_text("Menú", exact=False).first.click()
-                else:
-                    print("No numeric store link found. Trying text match fallback...")
-                    await page.get_by_text(restaurant_name, exact=False).first.click()
-
-            await page.wait_for_load_state("networkidle")
-            await page.wait_for_timeout(15000)
+                print(f"Restaurant {restaurant_name} not found in search results.")
             
-            # Final check: if we are still on a hub, try one more time to enter a store
-            if "/delivery/" in page.url or "/brand/" in page.url:
-                 print("Still on hub page. Attempting one last redirect to specific store...")
-                 links = await page.locator("a[href*='/restaurantes/']").all()
-                 for link in links:
-                      href = await link.get_attribute("href")
-                      if re.search(r"/restaurantes/\d{5,}-", href) and "/delivery/" not in href:
-                           await page.goto(f"https://www.rappi.com.mx{href}" if href.startswith("/") else href)
-                           break
-
-            print(f"Final Store URL: {page.url}")
+            if store_entered:
+                await page.wait_for_timeout(10000)
+                # Handle hub pages
+                if "/delivery/" in page.url or "/brand/" in page.url or "busqueda" in page.url:
+                    store_link = page.locator("a[href*='/restaurantes/']").first
+                    if await store_link.count() > 0:
+                        await store_link.click()
+                        await page.wait_for_timeout(8000)
+                print(f"Final Store URL: {page.url}")
         except Exception as e:
             print(f"Error entering restaurant: {e}")
 
-        # 3. Extract Precise Metrics
+        if not store_entered:
+            await browser.close()
+            return []
+
+        # 3. Extract Metrics (Fee/ETA)
         delivery_fee = None
         eta = None
-        
         try:
-            # User Full XPath: /html/body/div[1]/div[3]/div[2]/div[2]/div[2]/div[2]/div[1]
-            full_xpath = '/html/body/div[1]/div[3]/div[2]/div[2]/div[2]/div[2]/div[1]'
-            header_locator = page.locator(f"xpath={full_xpath}")
-            
-            if await header_locator.count() > 0 and await header_locator.is_visible(timeout=10000):
-                header_text = await header_locator.inner_text()
+            body_text = await page.inner_text("body")
+            eta_match = re.search(r'(\d+)\s*(?:-)\s*(\d+)\s*min', body_text)
+            if eta_match: eta = int(eta_match.group(2))
             else:
-                print("Full XPath not found, trying user's short XPath fallback...")
-                short_xpath = '//*[@id="restaurantLayoutContainer"]/div[2]/div[2]/div[2]'
-                header_locator = page.locator(f"xpath={short_xpath}")
-                if await header_locator.count() > 0 and await header_locator.is_visible(timeout=5000):
-                    header_text = await header_locator.inner_text()
-                else:
-                    print("XPaths failed, searching page content for ETA/Fee patterns...")
-                    header_text = await page.inner_text("body")
+                eta_match = re.search(r'(\d+)\s*min', body_text, re.IGNORECASE)
+                eta = int(eta_match.group(1)) if eta_match else None
             
-            # Extract ETA
-            eta_match = re.search(r'(\d+)\s*min', header_text, re.IGNORECASE)
-            eta = int(eta_match.group(1)) if eta_match else None
-            
-            # Extract Delivery Fee
-            if any(term in header_text.lower() for term in ["gratis", "free"]):
+            if any(term in body_text.lower() for term in ["envío gratis", "entrega gratis", "envío $ 0"]):
                 delivery_fee = 0.0
             else:
-                fee_match = re.search(r'Envío[^$]*\$\s*(\d+(?:\.\d+)?)', header_text, re.IGNORECASE)
-                if not fee_match:
-                    fee_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', header_text)
+                fee_match = re.search(r'Envío[^$]*\$\s*(\d+(?:\.\d+)?)', body_text, re.IGNORECASE)
+                if not fee_match: fee_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', body_text)
                 delivery_fee = float(fee_match.group(1)) if fee_match else None
-                
-        except Exception as e:
-            print(f"Error in header extraction: {e}")
+        except: pass
 
         # Scroll to load menu items
-        for _ in range(3):
-            await page.mouse.wheel(0, 1500)
+        for _ in range(4):
+            await page.mouse.wheel(0, 2000)
             await page.wait_for_timeout(2000)
 
-        # Get all product cards
+        # 4. Extract Product Cards
         cards = await page.locator("div[data-qa^='product-item-'], div[data-testid^='product-item-']").all()
-        print(f"Found {len(cards)} product cards.")
-
         scraped_products = []
         for card in cards:
             try:
                 text = await card.inner_text()
-                parts = [p.strip() for p in text.split('\n') if p.strip()]
-                name = await card.locator("h4").inner_text() if await card.locator("h4").count() > 0 else parts[0]
-                # Clean comma for numeric parsing
+                name_el = card.locator("h4, h3, span").first
+                name = await name_el.inner_text()
                 prices = re.findall(r'\$\s*(\d+(?:,\d+)?(?:\.\d+)?)', text.replace(',', ''))
-                prices = [float(p) for p in prices]
-                
-                scraped_products.append({
-                    "name": name,
-                    "prices": sorted(prices),
-                    "raw_text": text,
-                    "html_snippet": str(await card.inner_html())[:1000]
-                })
-            except:
-                continue
+                prices = sorted(list(set([float(p) for p in prices])))
+                if not prices: continue
+                scraped_products.append({"name": name, "prices": prices, "html_snippet": str(await card.inner_html())[:1000]})
+            except: continue
 
+        # 5. Matching (Fuzzy)
         results = []
         timestamp = datetime.now().isoformat()
+        scraped_names = [p["name"] for p in scraped_products]
         
-        # Match target products
         for target in target_products:
-            match_res = process.extractOne(target, [p["name"] for p in scraped_products], scorer=fuzz.WRatio)
-            
-            if match_res and match_res[1] > 80:
-                best_match = next(p for p in scraped_products if p["name"] == match_res[0])
-                prices = best_match["prices"]
-                
-                if len(prices) >= 2:
-                    final_price = min(prices)
-                    original_price = max(prices)
-                elif len(prices) == 1:
-                    final_price = prices[0]
-                    original_price = prices[0]
-                else:
-                    final_price = None
-                    original_price = None
-                    
-                discount_amount = original_price - final_price if original_price is not None and final_price is not None else 0.0
-                
-                record = {
-                    "timestamp": timestamp,
-                    "app_name": "Rappi",
-                    "store_name": restaurant_name,
-                    "full_address": address,
-                    "zone": zone,
-                    "municipality": municipality,
-                    "state": state,
-                    "country": country,
-                    "target_product": target,
-                    "scraped_product_name": best_match["name"],
-                    "original_price": original_price,
-                    "final_price": final_price,
-                    "discount_amount": discount_amount,
-                    "delivery_fee": delivery_fee,
-                    "eta": eta,
-                    "html_snippet": best_match["html_snippet"]
-                }
-                results.append(record)
+            match_res = process.extractOne(target, scraped_names, scorer=fuzz.WRatio)
+            if match_res and match_res[1] > 75:
+                match = next(p for p in scraped_products if p["name"] == match_res[0])
+                prices = match["prices"]
+                final_price = min(prices)
+                original_price = max(prices)
+                discount_amount = original_price - final_price
+                results.append({
+                    "timestamp": timestamp, "app_name": "Rappi", "store_name": restaurant_name,
+                    "full_address": address, "lat": lat, "lng": lng, "city": city, "municipality": municipality,
+                    "target_product": target, "scraped_product_name": match["name"],
+                    "original_price": original_price, "final_price": final_price, "discount_amount": discount_amount,
+                    "delivery_fee": delivery_fee, "eta": eta, "html_snippet": match["html_snippet"]
+                })
             else:
-                record = {
-                    "timestamp": timestamp,
-                    "app_name": "Rappi",
-                    "store_name": restaurant_name,
-                    "full_address": address,
-                    "zone": zone,
-                    "municipality": municipality,
-                    "state": state,
-                    "country": country,
-                    "target_product": target,
-                    "scraped_product_name": "Not Found",
-                    "original_price": None,
-                    "final_price": None,
-                    "discount_amount": None,
-                    "delivery_fee": delivery_fee,
-                    "eta": eta,
-                    "html_snippet": None
-                }
-                results.append(record)
-
+                results.append({
+                    "timestamp": timestamp, "app_name": "Rappi", "store_name": restaurant_name,
+                    "full_address": address, "lat": lat, "lng": lng, "city": city, "municipality": municipality,
+                    "target_product": target, "scraped_product_name": "Not Found",
+                    "original_price": None, "final_price": None, "discount_amount": None,
+                    "delivery_fee": delivery_fee, "eta": eta, "html_snippet": None
+                })
         await browser.close()
         return results
 
+async def get_available_products(address: str, restaurant_name: str, count: int = 3, headless: bool = True):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=headless)
+        page = await browser.new_page()
+        await Stealth().apply_stealth_async(page)
+        await page.goto("https://www.rappi.com.mx/", wait_until="domcontentloaded")
+        try:
+            addr_input = page.get_by_placeholder("¿Dónde quieres recibir tu compra?").first
+            await addr_input.fill(address)
+            await page.wait_for_timeout(4000)
+            await page.keyboard.press("ArrowDown")
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(6000)
+            search_url = f"https://www.rappi.com.mx/busqueda?query=McDonalds"
+            await page.goto(search_url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(8000)
+            link = page.locator("a[href*='/restaurantes/']").first
+            if await link.count() > 0:
+                await link.click()
+                await page.wait_for_timeout(10000)
+                names = await page.locator("h4").all_inner_texts()
+                valid_names = [n.strip() for n in names if len(n.strip()) > 3][:count]
+                await browser.close()
+                return valid_names
+        except: pass
+        await browser.close()
+        return []
+
 def save_to_json(data: List[dict], filename: str = "data/raw/rappi_products.json"):
-    """
-    Saves a list of dictionaries to a JSON file (appending to existing array).
-    """
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     existing_data = []
     if os.path.isfile(filename):
         with open(filename, "r", encoding="utf-8") as f:
-            try:
-                existing_data = json.load(f)
-            except json.JSONDecodeError:
-                pass
-                
+            try: existing_data = json.load(f)
+            except: pass
     existing_data.extend(data)
-    
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(existing_data, f, indent=4, ensure_ascii=False)
-        
-    print(f"Data appended to {filename}")
-
-def save_to_csv(data: List[dict], filename: str = "data/raw/rappi_scrape.csv"):
-    """
-    Saves a list of dictionaries to a CSV file (appending to existing).
-    """
-    df = pd.DataFrame(data)
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    if not os.path.isfile(filename):
-        df.to_csv(filename, index=False)
-    else:
-        existing_df = pd.read_csv(filename)
-        combined_df = pd.concat([existing_df, df], ignore_index=True)
-        combined_df.to_csv(filename, index=False)
-    print(f"Data saved to {filename}")

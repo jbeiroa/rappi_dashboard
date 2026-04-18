@@ -176,6 +176,8 @@ Temporary Items
 
 # Project Specific
 data/raw/*.csv
+data/raw/*.json
 data/processed/*.csv
+data/processed/*.json
 !data/raw/.gitkeep
 !data/processed/.gitkeep
