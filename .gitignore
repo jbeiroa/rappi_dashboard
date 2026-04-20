@@ -183,3 +183,6 @@ data/processed/*.json
 
 # Word lock file with the assignments
 docs/~$nsigna.docx
+
+# GDRIVE Secrets
+client_secrets.json

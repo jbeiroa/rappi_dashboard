@@ -1,22 +1,48 @@
 import os
-import json
 import argparse
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from google.auth.transport.requests import Request
+
+def get_credentials():
+    """Gets credentials from environment variables."""
+    client_id = os.environ.get('GDRIVE_CLIENT_ID')
+    client_secret = os.environ.get('GDRIVE_CLIENT_SECRET')
+    refresh_token = os.environ.get('GDRIVE_REFRESH_TOKEN')
+
+    if all([client_id, client_secret, refresh_token]):
+        creds = Credentials(
+            token=None,  # Will be refreshed
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=['https://www.googleapis.com/auth/drive.file']
+        )
+        # Refresh the token if needed
+        creds.refresh(Request())
+        return creds
+    
+    # Fallback for Service Account (Old method, might still fail with 403 quota)
+    creds_json = os.environ.get('GDRIVE_CREDENTIALS_JSON')
+    if creds_json:
+        import json
+        from google.oauth2 import service_account
+        creds_dict = json.loads(creds_json)
+        return service_account.Credentials.from_service_account_info(
+            creds_dict, scopes=['https://www.googleapis.com/auth/drive.file']
+        )
+
+    print("Error: Missing Google Drive credentials environment variables.")
+    return None
 
 def upload_files(folder_id, file_paths):
     """Uploads files to a specific Google Drive folder."""
-    creds_json = os.environ.get('GDRIVE_CREDENTIALS_JSON')
-    if not creds_json:
-        print("Error: GDRIVE_CREDENTIALS_JSON environment variable not set.")
+    creds = get_credentials()
+    if not creds:
         return
 
-    creds_dict = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict, scopes=['https://www.googleapis.com/auth/drive.file']
-    )
-    
     service = build('drive', 'v3', credentials=creds)
 
     for file_path in file_paths:
